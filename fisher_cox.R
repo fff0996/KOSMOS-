@@ -140,3 +140,93 @@ both_sig <- intersect(
 
 cat("\nGenes significant in BOTH tests:", length(both_sig), "\n")
 print(both_sig)
+
+
+
+##cox sig heatmap 암종별 
+library(pheatmap)
+library(dplyr)
+
+## ========== Cox 유의한 gene의 암종별 alteration frequency ==========
+
+## 1) Cox에서 p < 0.05인 gene
+prog_genes <- cox_res %>%
+  filter(p_value < 0.05) %>%
+  pull(gene)
+
+cat("Prognostic genes (Cox p < 0.05):", length(prog_genes), "\n")
+
+## 2) 이 gene들로 alteration matrix
+alter_cox <- alter_binary[matched_samples, prog_genes]
+
+## 3) Cancer type 리스트
+cancer_types <- sort(unique(anno_matched$dx))
+cat("Cancer types:", length(cancer_types), "\n")
+
+## 4) Frequency matrix 생성
+freq_matrix_cox <- matrix(0, nrow = length(prog_genes), ncol = length(cancer_types))
+rownames(freq_matrix_cox) <- prog_genes
+colnames(freq_matrix_cox) <- cancer_types
+
+for (gene in prog_genes) {
+  for (dx in cancer_types) {
+    samples_dx <- anno_matched %>% filter(dx == !!dx) %>% pull(SubjectNo)
+    if (length(samples_dx) > 0 && gene %in% colnames(alter_cox)) {
+      freq_matrix_cox[gene, dx] <- sum(alter_cox[samples_dx, gene]) / length(samples_dx)
+    }
+  }
+}
+
+## 5) 확인
+cat("\nFrequency matrix:", dim(freq_matrix_cox), "\n")
+cat("Max frequency:", max(freq_matrix_cox), "\n")
+cat("Min frequency:", min(freq_matrix_cox), "\n")
+
+## Genes with max freq = 0 확인
+gene_max_freq <- apply(freq_matrix_cox, 1, max)
+cat("Genes with max freq = 0:", sum(gene_max_freq == 0), "\n")
+
+if (sum(gene_max_freq == 0) > 0) {
+  zero_genes <- names(gene_max_freq[gene_max_freq == 0])
+  cat("\nZero frequency genes:\n")
+  print(zero_genes)
+  
+  # 왜 0인지 확인
+  for (gene in head(zero_genes, 3)) {
+    cat("\n", gene, ":\n")
+    cat("  In alter_binary:", sum(alter_binary[, gene]), "\n")
+    cat("  In alter_cox:", ifelse(gene %in% colnames(alter_cox), 
+                                   sum(alter_cox[, gene]), "NOT IN MATRIX"), "\n")
+  }
+}
+
+## 6) Cancer type 이름 정리
+colnames(freq_matrix_cox) <- gsub("cancer", "", colnames(freq_matrix_cox))
+colnames(freq_matrix_cox) <- gsub("\\(.*\\)", "", colnames(freq_matrix_cox))
+colnames(freq_matrix_cox) <- trimws(colnames(freq_matrix_cox))
+
+## 7) Max frequency 기준 legend
+max_freq_cox <- ceiling(max(freq_matrix_cox) * 10) / 10
+
+## 8) Heatmap
+pdf("cancer_type_heatmap_prognostic_genes_fixed.pdf", width = 12, height = 10)
+pheatmap(
+  freq_matrix_cox,
+  color = colorRampPalette(c("white", "#FFB6A3", "#E64B35", "#C0201C"))(100),
+  breaks = seq(0, max_freq_cox, length.out = 101),
+  cluster_rows = TRUE,
+  cluster_cols = TRUE,
+  show_rownames = TRUE,
+  show_colnames = TRUE,
+  fontsize_row = 8,
+  fontsize_col = 9,
+  border_color = "gray80",
+  main = "Cancer type-specific alteration frequency of prognostic genes",
+  legend_breaks = seq(0, max_freq_cox, by = 0.2),
+  angle_col = 45
+)
+dev.off()
+
+write.csv(freq_matrix_cox, "cancer_type_freq_prognostic_genes.csv", row.names = TRUE)
+
+cat("\nFiles saved!\n")
