@@ -230,3 +230,117 @@ dev.off()
 write.csv(freq_matrix_cox, "cancer_type_freq_prognostic_genes.csv", row.names = TRUE)
 
 cat("\nFiles saved!\n")
+
+library(ComplexHeatmap)
+library(dplyr)
+
+## 1) Pathways
+pathways <- list(
+  `DNA Damage Response (DDR)` = c("TP53", "MDM2", "BRCA1", "BRCA2", "BAP1", "ATM", "ATR", "PALB2"),
+  `Cell Cycle` = c("CDKN2A", "CCND1", "RB1", "CCNE1", "CDK12"),
+  `Epigenetic Modifier` = c("ARID1A", "ARID2", "ARID1B", "CREBBP", "IDH1", "IDH2", "PBRM1", "KDM5A"),
+  `RAS/MAPK` = c("KRAS", "ERBB2", "FGFR3", "PIK3CA", "BRAF", "ERBB3", "STK11", "NF1", "PTEN", "ALK", "FGFR2"),
+  `TGF-β` = c("SMAD4", "FBXW7", "TGFBR2", "MYC"),
+  `WNT` = c("APC", "CTNNB1", "EP300")
+)
+pathway_genes <- unique(unlist(pathways))
+
+## 2) Samples
+matched_samples <- intersect(rownames(alter_df_full_updated), anno$SubjectNo)
+anno_matched <- anno %>%
+  filter(SubjectNo %in% matched_samples) %>%
+  arrange(res.non)
+sample_order <- anno_matched$SubjectNo
+
+## 3) Alteration matrix (samples x genes)
+alter_pathway <- alter_df_full_updated[sample_order, pathway_genes]
+
+## 4) Gene frequency - colSums!
+gene_freq <- colSums(alter_pathway > 0) / nrow(alter_pathway)
+gene_order <- names(sort(gene_freq, decreasing = TRUE))
+
+cat("Gene frequencies calculated:", length(gene_freq), "\n")
+cat("Gene order:", length(gene_order), "\n")
+
+## 5) Oncoprint matrix (genes x samples)
+onco_mat <- matrix("", nrow = length(pathway_genes), ncol = length(sample_order))
+rownames(onco_mat) <- pathway_genes
+colnames(onco_mat) <- sample_order
+
+for (i in 1:length(sample_order)) {
+  for (j in 1:length(pathway_genes)) {
+    val <- alter_pathway[i, j]
+    if (val == 1) {
+      onco_mat[j, i] <- "MUT"
+    } else if (val == 2) {
+      onco_mat[j, i] <- "CNV"
+    } else if (val == 3) {
+      onco_mat[j, i] <- "MUT_CNV"
+    }
+  }
+}
+
+## 6) Reorder matrix
+onco_mat <- onco_mat[gene_order, ]
+gene_freq <- gene_freq[gene_order]
+
+## 7) Row split
+row_split <- rep(NA, length(gene_order))
+names(row_split) <- gene_order
+
+for (pw in names(pathways)) {
+  for (gene in pathways[[pw]]) {
+    if (gene %in% gene_order) {
+      row_split[gene] <- pw
+    }
+  }
+}
+row_split <- factor(row_split, levels = names(pathways))
+
+cat("onco_mat:", dim(onco_mat), "\n")
+cat("row_split:", length(row_split), "\n")
+
+## 8) Plot
+alter_fun <- list(
+  background = function(x, y, w, h) {
+    grid.rect(x, y, w, h, gp = gpar(fill = "#F5F5F5", col = NA))
+  },
+  MUT = function(x, y, w, h) {
+    grid.rect(x, y, w*0.9, h*0.9, gp = gpar(fill = "#3C5488", col = NA))
+  },
+  CNV = function(x, y, w, h) {
+    grid.rect(x, y, w*0.9, h*0.9, gp = gpar(fill = "#F39B7F", col = NA))
+  },
+  MUT_CNV = function(x, y, w, h) {
+    grid.rect(x, y, w*0.9, h*0.9, gp = gpar(fill = "#8B4789", col = NA))
+  }
+)
+
+gap_pos <- sum(anno_matched$res.non == "non_res")
+
+column_ha <- HeatmapAnnotation(
+  Response = anno_matched$res.non,
+  col = list(Response = c("non_res" = "#E64B35", "res" = "#4DBBD5"))
+)
+
+pdf("oncoprint_pathway_39genes_final.pdf", width = 14, height = 10)
+
+oncoPrint(
+  onco_mat,
+  alter_fun = alter_fun,
+  col = c("MUT" = "#3C5488", "CNV" = "#F39B7F", "MUT_CNV" = "#8B4789"),
+  top_annotation = column_ha,
+  right_annotation = rowAnnotation(
+    `Freq (%)` = anno_barplot(gene_freq * 100, gp = gpar(fill = "#4DBBD5"))
+  ),
+  row_split = row_split,
+  column_split = factor(c(rep("Non-Responder", gap_pos), 
+                          rep("Responder", length(sample_order) - gap_pos)),
+                        levels = c("Non-Responder", "Responder")),
+  show_column_names = FALSE,
+  row_names_side = "left",
+  pct_side = "right",
+  column_title = "Genomic Alterations (n = 119)"
+)
+
+dev.off()
