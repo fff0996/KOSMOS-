@@ -3,33 +3,59 @@ library(survival)
 
 ## ========== STEP 1: 데이터 준비 ==========
 
-## Binary alteration (0 vs 1/2/3)
-alter_binary <- alter_df_full
-alter_binary[alter_binary > 0] <- 1
+gene_list <- unique(dat_somatic$Hugo_Symbol)  # 558 genes
 
-## Sample matching
-matched_samples <- intersect(rownames(alter_binary), anno$SubjectNo)
+dat_somatic <- dat_somatic %>%
+  mutate(Sample_clean = Tumor_Sample_Barcode %>%
+           as.character() %>%
+           str_remove("_snvindel") %>%
+           str_remove("_CancerScan") %>%
+           str_remove("_RNA") %>%
+           gsub("_", "-", .))
 
-alter_matched <- alter_binary[matched_samples, ]
-anno_matched <- anno %>%
-  filter(SubjectNo %in% matched_samples) %>%
-  arrange(match(SubjectNo, matched_samples))
+mut_matrix <- dat_somatic %>%
+  select(Sample_clean, Hugo_Symbol) %>%
+  distinct() %>%
+  mutate(mutated = 1) %>%
+  pivot_wider(names_from = Hugo_Symbol, 
+              values_from = mutated, 
+              values_fill = 0) %>%
+  column_to_rownames("Sample_clean")
 
-cat("Matched samples:", nrow(alter_matched), "\n")
-cat("Genes:", ncol(alter_matched), "\n")
+
+all_samples <- anno$SUBJ_ID
+
+# Missing 샘플들 (mutation 없는 25명)
+missing_samples <- setdiff(all_samples, rownames(mut_matrix))
+
+cat("Samples with mutations:", nrow(mut_matrix), "\n")
+cat("Samples without mutations:", length(missing_samples), "\n")
+
+# Missing 샘플들을 0으로 채워서 추가
+if (length(missing_samples) > 0) {
+  missing_matrix <- matrix(0, 
+                          nrow = length(missing_samples), 
+                          ncol = ncol(mut_matrix))
+  rownames(missing_matrix) <- missing_samples
+  colnames(missing_matrix) <- colnames(mut_matrix)
+  
+  mut_matrix <- rbind(mut_matrix, missing_matrix)
+}
+
+
 
 ## ========== STEP 2: Fisher's Exact Test ==========
 
-fisher_results <- lapply(colnames(alter_matched), function(gene) {
+fisher_results <- lapply(colnames(mut_matrix), function(gene) {
   
   test_data <- data.frame(
-    res.non = anno_matched$res.non,
-    altered = alter_matched[, gene]
+    response = anno$Responder.vs...Non.responder,
+    mutated = mut_matrix[, gene]
   ) %>%
-    filter(!is.na(res.non), !is.na(altered))
+    filter(!is.na(response), !is.na(mutated))
   
   # 2x2 table
-  tab <- table(test_data$res.non, test_data$altered)
+  tab <- table(test_data$response, test_data$mutated)
   
   # Table이 2x2가 아니면 skip
   if (nrow(tab) < 2 || ncol(tab) < 2) {
