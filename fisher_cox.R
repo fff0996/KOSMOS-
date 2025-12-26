@@ -42,42 +42,56 @@ if (length(missing_samples) > 0) {
   mut_matrix <- rbind(mut_matrix, missing_matrix)
 }
 
+mut_matrix_final <- mut_matrix
+
+# Sample matching
+matched_samples <- intersect(rownames(mut_matrix_final), anno$SUBJ_ID)
+
+mut_matched <- mut_matrix_final[matched_samples, ]
+anno_matched <- anno %>%
+  filter(SUBJ_ID %in% matched_samples) %>%
+  arrange(match(SUBJ_ID, matched_samples))
+
 
 
 ## ========== STEP 2: Fisher's Exact Test ==========
 
-fisher_results <- lapply(colnames(mut_matrix), function(gene) {
+fisher_results <- lapply(colnames(mut_matched), function(gene) {
   
   test_data <- data.frame(
-    response = anno$Responder.vs...Non.responder,
-    mutated = mut_matrix[, gene]
+    response = anno_matched$Responder.vs...Non.responder,
+    mutated = mut_matched[, gene]
   ) %>%
     filter(!is.na(response), !is.na(mutated))
   
-  # 2x2 table
   tab <- table(test_data$response, test_data$mutated)
   
-  # Table이 2x2가 아니면 skip
   if (nrow(tab) < 2 || ncol(tab) < 2) {
     return(NULL)
   }
   
-  # Fisher test
+  # Fisher test (p-value용)
   ft <- fisher.test(tab)
+  
+  # Odds ratio: 0.5 correction
+  tab_corrected <- tab + 0.5
+  or_corrected <- (tab_corrected["1", "1"] * tab_corrected["0", "0"]) / 
+                  (tab_corrected["1", "0"] * tab_corrected["0", "1"])
   
   data.frame(
     gene = gene,
-    non_res_alt = tab["non_res", "1"],
-    non_res_total = sum(tab["non_res", ]),
-    res_alt = tab["res", "1"],
-    res_total = sum(tab["res", ]),
-    freq_non_res = tab["non_res", "1"] / sum(tab["non_res", ]),
-    freq_res = tab["res", "1"] / sum(tab["res", ]),
-    odds_ratio = unname(ft$estimate),
+    non_res_mut = tab["0", "1"],
+    non_res_total = sum(tab["0", ]),
+    res_mut = tab["1", "1"],
+    res_total = sum(tab["1", ]),
+    freq_non_res = tab["0", "1"] / sum(tab["0", ]),
+    freq_res = tab["1", "1"] / sum(tab["1", ]),
+    odds_ratio = or_corrected,
     p_value = ft$p.value,
     stringsAsFactors = FALSE
   )
 })
+
 
 fisher_res <- bind_rows(fisher_results) %>%
   mutate(
@@ -99,12 +113,12 @@ write.csv(fisher_res, "fisher_test_response_fixed.csv", row.names = FALSE)
 
 ## ========== STEP 3: Cox Regression ==========
 
-cox_results <- lapply(colnames(alter_matched), function(gene) {
+cox_results <- lapply(colnames(mut_matrix), function(gene) {
   
   cox_data <- data.frame(
-    pfs = anno_matched$pfs,
-    PFS_event = anno_matched$PFS_event,
-    altered = alter_matched[, gene]
+    pfs = anno$pfs,
+    PFS_event = anno_$PFS_event,
+    altered = mut_matrix[, gene]
   ) %>%
     filter(!is.na(pfs), !is.na(PFS_event), !is.na(altered))
   
