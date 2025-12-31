@@ -1,6 +1,8 @@
 library(dplyr)
 library(survival)
 library(tibble)
+library(tidyr)
+
 ## ========== STEP 1: 데이터 준비 ==========
 
 gene_list <- unique(dat_somatic$Hugo_Symbol)  # 558 genes
