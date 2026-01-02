@@ -291,29 +291,7 @@ cat("Genes:", ncol(alt_matched), "\n")
 
 
 
-     
-## ========== STEP 4: Summary ==========
-
-cat("\n=== Summary ===\n")
-cat("Fisher test:", nrow(fisher_res), "genes\n")
-cat("  - p < 0.05:", sum(fisher_res$p_value < 0.05), "\n")
-cat("  - p_adj < 0.05:", sum(fisher_res$p_adj < 0.05), "\n")
-
-cat("\nCox regression:", nrow(cox_res), "genes\n")
-cat("  - p < 0.05:", sum(cox_res$p_value < 0.05), "\n")
-cat("  - p_adj < 0.05:", sum(cox_res$p_adj < 0.05), "\n")
-
-## Both significant
-both_sig <- intersect(
-  fisher_res %>% filter(p_value < 0.05) %>% pull(gene),
-  cox_res %>% filter(p_value < 0.05) %>% pull(gene)
-)
-
-cat("\nGenes significant in BOTH tests:", length(both_sig), "\n")
-print(both_sig)
-
-
-
+ 
 ##cox sig heatmap 암종별 
 library(pheatmap)
 library(dplyr)
@@ -540,3 +518,78 @@ oncoPrint(
   border = TRUE
 )
 dev.off()
+
+
+
+###=========cox model volcano plot===============
+
+
+     plot_data <- cox_res %>%
+  mutate(
+    log2_HR = log2(hazard_ratio),
+    neg_log10_p = -log10(p_value),
+    # p < 0.05면 모두 labeling
+    label = ifelse(p_value < 0.05, gene, ""),
+    # 3-tier significance
+    sig_level = case_when(
+      p_value < 0.01 ~ "p < 0.01",
+      p_value < 0.05 ~ "p < 0.05",
+      TRUE ~ "Not significant"
+    )
+  )
+
+p <- ggplot(plot_data, aes(x = log2_HR, y = neg_log10_p)) +
+  geom_point(aes(color = sig_level, size = sig_level), alpha = 0.7) +
+  
+  # Size by significance
+  scale_size_manual(values = c("Not significant" = 1.5, 
+                               "p < 0.05" = 2.5,
+                               "p < 0.01" = 3.5),
+                   name = "") +
+  
+  # Reference lines
+  geom_vline(xintercept = 0, linetype = "solid", color = "black", linewidth = 0.5) +
+  geom_hline(yintercept = -log10(0.05), linetype = "dashed", 
+             color = "gray40", linewidth = 0.4) +
+  geom_hline(yintercept = -log10(0.01), linetype = "dashed", 
+             color = "red", linewidth = 0.4) +
+  
+  # Color scheme
+  scale_color_manual(
+    values = c("Not significant" = "gray70", 
+               "p < 0.05" = "#E67E22",
+               "p < 0.01" = "#E74C3C"),
+    name = ""
+  ) +
+  
+  # ALL significant genes labeled
+  geom_text_repel(
+    aes(label = label), 
+    size = 3,
+    max.overlaps = Inf,  # 모두 표시
+    box.padding = 0.5,
+    point.padding = 0.3,
+    segment.color = "gray50",
+    segment.size = 0.2,
+    min.segment.length = 0,
+    force = 2,
+    force_pull = 0.5
+  ) +
+  
+  labs(
+    x = "log2(Hazard Ratio)",
+    y = "-log10(P-value)",
+    title = "Cox Regression: Mutation vs PFS",
+    subtitle = paste0("Significant genes: ", sum(plot_data$p_value < 0.05))
+  ) +
+  theme_classic(base_size = 12) +
+  theme(
+    legend.position = "top",
+    axis.text = element_text(size = 11, color = "black"),
+    axis.title = element_text(size = 12, face = "bold"),
+    plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
+    plot.subtitle = element_text(size = 10, hjust = 0.5, color = "gray40")
+  )
+
+print(p)
+ggsave("cox_volcano_all_sig.pdf", width = 14, height = 10)
