@@ -115,12 +115,12 @@ write.csv(fisher_res, "fisher_test_response_fixed.csv", row.names = FALSE)
 
 ## ========== STEP 3: Cox Regression ==========
 
-cox_results <- lapply(colnames(mut_matrix), function(gene) {
+cox_results <- lapply(colnames(mut_matched), function(gene) {
   
   cox_data <- data.frame(
-    pfs = anno$pfs,
-    PFS_event = anno_$PFS_event,
-    altered = mut_matrix[, gene]
+    pfs = anno_matched$PFS_day,
+    PFS_event = anno_matched$PFS_event,
+    altered = mut_matched[, gene]
   ) %>%
     filter(!is.na(pfs), !is.na(PFS_event), !is.na(altered))
   
@@ -163,6 +163,120 @@ print(head(cox_res, 10))
 
 write.csv(cox_res, "cox_regression_pfs_fixed.csv", row.names = FALSE)
 
+
+## ===================CNV ==============================================
+library(dplyr)
+library(tidyr)
+library(tibble)
+
+# CNV matrix 생성 (Gain or Loss 있으면 1, 없으면 0)
+cnv_matrix <- cnv_df %>%
+  select(subj_id, GENE_CMNT) %>%
+  distinct() %>%  # 같은 gene에 Gain/Loss 둘 다 있어도 1번만
+  mutate(altered = 1) %>%
+  pivot_wider(names_from = GENE_CMNT, 
+              values_from = altered, 
+              values_fill = 0) %>%
+  column_to_rownames("subj_id")
+
+# 확인
+dim(cnv_matrix)
+cnv_matrix[1:5, 1:5]
+
+# 모든 샘플 추가 (CNV 없는 샘플들)
+all_samples <- anno$subj_id
+missing_samples <- setdiff(all_samples, rownames(cnv_matrix))
+
+cat("Samples with CNV:", nrow(cnv_matrix), "\n")
+cat("Samples without CNV:", length(missing_samples), "\n")
+
+if (length(missing_samples) > 0) {
+  missing_matrix <- matrix(0, 
+                          nrow = length(missing_samples), 
+                          ncol = ncol(cnv_matrix))
+  rownames(missing_matrix) <- missing_samples
+  colnames(missing_matrix) <- colnames(cnv_matrix)
+  
+  cnv_matrix <- rbind(cnv_matrix, missing_matrix)
+}
+
+# Sample matching
+matched_samples <- intersect(rownames(cnv_matrix), anno$subj_id)
+cnv_matched <- cnv_matrix[matched_samples, ]
+
+# 유전자별 alteration 빈도 확인
+cnv_freq <- colSums(cnv_matched) / nrow(cnv_matched) * 100
+head(sort(cnv_freq, decreasing = TRUE), 
+
+##=================== mut | cnv =============================
+## ========== 올바른 통합 방법 ==========
+
+# 1. 모든 샘플 리스트 (합집합)
+all_samples_union <- union(rownames(mut_matrix), rownames(cnv_matrix))
+
+
+# 2. 모든 유전자 리스트 (합집합)
+all_genes <- union(colnames(mut_matrix), colnames(cnv_matrix))
+
+
+# 3. 빈 matrix 생성 (모든 샘플 × 모든 유전자)
+combined_matrix <- matrix(0, 
+                         nrow = length(all_samples_union), 
+                         ncol = length(all_genes))
+rownames(combined_matrix) <- all_samples_union
+colnames(combined_matrix) <- all_genes
+
+# 4. Mutation 정보 채우기
+for (sample in rownames(mut_matrix)) {
+  for (gene in colnames(mut_matrix)) {
+    if (mut_matrix[sample, gene] == 1) {
+      combined_matrix[sample, gene] <- 1
+    }
+  }
+}
+
+# 5. CNV 정보 추가 (OR 연산)
+for (sample in rownames(cnv_matrix)) {
+  for (gene in colnames(cnv_matrix)) {
+    if (cnv_matrix[sample, gene] == 1) {
+      combined_matrix[sample, gene] <- 1
+    }
+  }
+}
+
+
+
+# 7. Anno 샘플들 추가 (alteration 없는 샘플들)
+all_samples_anno <- anno$subj_id
+missing_samples <- setdiff(all_samples_anno, rownames(combined_matrix))
+
+cat("\nSamples without any alteration:", length(missing_samples), "\n")
+
+if (length(missing_samples) > 0) {
+  missing_matrix <- matrix(0, 
+                          nrow = length(missing_samples), 
+                          ncol = ncol(combined_matrix))
+  rownames(missing_matrix) <- missing_samples
+  colnames(missing_matrix) <- colnames(combined_matrix)
+  
+  combined_matrix <- rbind(combined_matrix, missing_matrix)
+}
+
+# 8. 최종 매칭
+matched_samples <- intersect(rownames(combined_matrix), anno$subj_id)
+
+alt_matched <- combined_matrix[matched_samples, ]
+anno_matched <- anno %>%
+  filter(subj_id %in% matched_samples) %>%
+  arrange(match(subj_id, matched_samples))
+
+cat("\n=== Final Matrix ===\n")
+cat("Samples:", nrow(alt_matched), "\n")
+cat("Genes:", ncol(alt_matched), "\n")
+
+
+
+     
 ## ========== STEP 4: Summary ==========
 
 cat("\n=== Summary ===\n")
