@@ -3,6 +3,21 @@ library(survival)
 library(tibble)
 library(tidyr)
 
+
+library(maftools)
+
+## ========== maftools로 MAF 파일들 합치기 ==========
+
+# 제외할 샘플
+exclude_samples <- c("S001-020", "S010-022")
+exclude_pattern <- paste0(exclude_samples, collapse = "|")
+
+# MAF 파일 리스트
+maf_files_filtered <- maf_files[!grepl(exclude_pattern, maf_files)]
+
+# maftools로 읽어서 합치기
+maf <- merge_mafs(mafs = maf_files_filtered, verbose = TRUE)
+
 ## ========== STEP 1: 데이터 준비 ==========
 
 gene_list <- unique(dat_somatic$Hugo_Symbol)  # 558 genes
