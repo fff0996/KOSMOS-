@@ -578,9 +578,9 @@ p <- ggplot(plot_data, aes(x = log2_HR, y = neg_log10_p)) +
   
   labs(
     x = "log2(Hazard Ratio)",
-    y = "-log10(P-value)",
-    title = "Cox Regression: Mutation vs PFS",
-    subtitle = paste0("Significant genes: ", sum(plot_data$p_value < 0.05))
+    y = "-log10(P-value)"
+   # title = "Cox Regression: Mutation vs PFS",
+    #subtitle = paste0("Significant genes: ", sum(plot_data$p_value < 0.05))
   ) +
   theme_classic(base_size = 12) +
   theme(
@@ -590,6 +590,6 @@ p <- ggplot(plot_data, aes(x = log2_HR, y = neg_log10_p)) +
     plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
     plot.subtitle = element_text(size = 10, hjust = 0.5, color = "gray40")
   )
-
+png("mut_cox_vol.png", width = 14, height = 10, units = "in", res = 300)
 print(p)
 ggsave("cox_volcano_all_sig.pdf", width = 14, height = 10)
