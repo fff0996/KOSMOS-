@@ -17,7 +17,18 @@ maf_files_filtered <- maf_files[!grepl(exclude_pattern, maf_files)]
 
 # maftools로 읽어서 합치기
 maf <- merge_mafs(mafs = maf_files_filtered, verbose = TRUE)
+dat <- maf@data
 
+# VAF 계산
+dat$VAF <- dat$t_alt_count / dat$t_depth
+
+# 필터링
+dat_filtered <- dat %>%
+  filter(VAF >= 0.02,
+         t_depth >= 50,
+         t_alt_count >= 3,
+         FILTER == "PASS",
+         is.na(gnomAD_EAS_AF) | gnomAD_EAS_AF <= 0.01)
 ## ========== STEP 1: 데이터 준비 ==========
 
 gene_list <- unique(dat_somatic$Hugo_Symbol)  # 558 genes
